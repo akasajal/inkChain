@@ -197,8 +197,6 @@ screenshots/                     README and report screenshots
 | Darshan | [@darshann0319](https://github.com/darshann0319) |
 | Sangeeta | [@sangeeta006](https://github.com/sangeeta006) |
 | Md. Zaid | [@mohd-zaidb](https://github.com/mohd-zaidb) |
-| Safia | [@safia052](https://github.com/safia052) |
-| Md. Mustafa | [@mmustafair](https://github.com/mmustafair) |
 
 ## License and intellectual property
 
