@@ -23,6 +23,10 @@ To connect MetaMask instead, add a local network using RPC `http://127.0.0.1:854
 
 The deploy script writes the new contract address to `.env.local`. If Vite was already running, restart it so the frontend loads that address. The configured local RPC lets anyone verify a fingerprint without connecting a wallet; registration and attestations require a wallet because they send transactions.
 
+## Contract tests
+
+Run the registry suite with `npm run test:contract`. It covers version metadata, parent/child links, duplicate fingerprints, invalid parent references, metadata validation, and Editor/Publisher attestations. If the pinned compiler is already unavailable offline but current Hardhat artifacts exist, run `npm run test:contract -- --no-compile`; recompile after any Solidity changes before relying on that mode.
+
 ## Version records
 
 Each on-chain version stores its manuscript ID, parent version ID, registering wallet, timestamp, manuscript title, version label, optional change note, detected MIME type (or file extension when unavailable), and exact size in bytes. Children are derived from parent links and can branch; a version has no fixed single “next” version. The transaction receipt also contains the transaction hash and block number/hash, which the browser displays for records it registered. The change note and all other metadata are public on-chain. File contents and original filenames remain off-chain.
@@ -43,6 +47,7 @@ This version changes the registry contract interface. Existing deployments do no
 ```text
 contracts/ManuscriptRegistry.sol  Solidity registry
 scripts/deploy.ts                Local deployment script
+contract-tests/                  Registry behavior tests
 src/App.tsx                      Registration, verification, and activity UI
 src/chain.ts                     Wallet, hashing, and registry helpers
 ```
