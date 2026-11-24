@@ -239,9 +239,11 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--focus); out
 .modal-close:hover { background: var(--secondary); color: var(--foreground); }
 .version-details-list { display: grid; gap: 0; margin: 7px 0 0; }
 .version-details-list > div { display: grid; grid-template-columns: 125px minmax(0, 1fr); gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--border); }
+.version-details-list > .detail-hash-row { grid-template-columns: minmax(0, 1fr); gap: 6px; }
 .version-details-list dt { color: var(--muted); font-size: 11px; }
 .version-details-list dd { margin: 0; overflow-wrap: anywhere; color: var(--foreground); font-size: 11px; text-align: right; }
 .version-details-list .mono { font-size: 10px; }
+.version-details-list > .detail-hash-row dd { min-width: 0; text-align: left; line-height: 1.5; }
 .version-details-list .detail-note { grid-template-columns: 1fr; gap: 5px; text-align: left; }
 .version-details-list .detail-note dd { text-align: left; line-height: 1.5; }
 .modal-hash { display: grid; gap: 7px; margin: 14px 0; }

@@ -608,18 +608,18 @@ function VersionDetails({ record, onClose, onCopy, onAttest }: { record: Version
       <div className="modal-heading"><div><span className="eyebrow">VERSION RECORD</span><h2 id="version-modal-title">{record.manuscriptTitle || 'Manuscript'}</h2><p className="modal-subtitle">{record.title}</p></div><button className="modal-close" aria-label="Close version details" onClick={onClose}><X size={17} /></button></div>
       {record.privacyMode === 'local' && <p className="privacy-record-note">{record.manuscriptTitle === privateManuscriptLabel ? 'Descriptive details were kept in the registering browser and are unavailable here.' : 'The title, version label, and change note below are shown from this browser only; generic labels are stored on-chain.'}</p>}
       <dl className="version-details-list">
-        <div><dt>Manuscript ID</dt><dd className="mono">{record.manuscriptId || 'Unavailable · legacy record'}</dd></div>
-        <div><dt>Version ID</dt><dd className="mono">{record.hash}</dd></div>
+        <div className="detail-hash-row"><dt>Manuscript ID</dt><dd className="mono">{record.manuscriptId || 'Unavailable · legacy record'}</dd></div>
+        <div className="detail-hash-row"><dt>Version ID</dt><dd className="mono">{record.hash}</dd></div>
         <div><dt>Registered</dt><dd>{new Date(record.registeredAt * 1000).toLocaleString()}</dd></div>
         <div><dt>File</dt><dd>{record.fileType || 'Unknown'} · {record.fileSize.toLocaleString()} bytes</dd></div>
         <div><dt>Wallet</dt><dd className="mono">{record.writer}</dd></div>
-        <div><dt>Previous version</dt><dd className="mono">{record.parentHash.toLowerCase() === zeroHash ? 'First version' : record.parentHash}</dd></div>
-        <div><dt>Next versions</dt><dd className="mono">{record.legacy ? 'Unavailable · legacy record' : children.length ? children.join(', ') : 'None registered yet'}</dd></div>
+        <div className="detail-hash-row"><dt>Previous version</dt><dd className="mono">{record.parentHash.toLowerCase() === zeroHash ? 'First version' : record.parentHash}</dd></div>
+        <div className="detail-hash-row"><dt>Next versions</dt><dd className="mono">{record.legacy ? 'Unavailable · legacy record' : children.length ? children.join(', ') : 'None registered yet'}</dd></div>
         {record.changeNote && <div className="detail-note"><dt>Change note</dt><dd>{record.changeNote}</dd></div>}
         <div><dt>Network · chain ID</dt><dd>{record.chainId ? `Chain ${record.chainId}` : 'Unavailable · legacy record'}</dd></div>
-        <div><dt>Contract</dt><dd className="mono">{record.contractAddress || 'Unavailable · legacy record'}</dd></div>
-        <div><dt>Transaction</dt><dd className="mono">{record.tx || 'Unavailable · legacy record'}</dd></div>
-        <div><dt>Block · hash</dt><dd className="mono">{record.blockNumber ? `${record.blockNumber} · ${record.blockHash}` : 'Unavailable · legacy record'}</dd></div>
+        <div className="detail-hash-row"><dt>Contract</dt><dd className="mono">{record.contractAddress || 'Unavailable · legacy record'}</dd></div>
+        <div className="detail-hash-row"><dt>Transaction</dt><dd className="mono">{record.tx || 'Unavailable · legacy record'}</dd></div>
+        <div className="detail-hash-row"><dt>Block · hash</dt><dd className="mono">{record.blockNumber ? `${record.blockNumber} · ${record.blockHash}` : 'Unavailable · legacy record'}</dd></div>
       </dl>
       <div className="modal-hash"><span>SHA-256 fingerprint</span><code>{record.hash}</code></div>
       <section className="attestation-section"><div className="attestation-heading"><h3>Attestations</h3><span>{attestations.length}</span></div>
