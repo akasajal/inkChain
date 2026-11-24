@@ -197,3 +197,11 @@ screenshots/                     README and report screenshots
 | Darshan | [@darshann0319](https://github.com/darshann0319) |
 | Sangeeta | [@sangeeta006](https://github.com/sangeeta006) |
 | Md. Zaid | [@mohd-zaidb](https://github.com/mohd-zaidb) |
+| Safia | [@safia052](https://github.com/safia052) |
+| Md. Mustafa | [@mmustafair](https://github.com/mmustafair) |
+
+## License and intellectual property
+
+InkChain is proprietary software provided solely for academic evaluation, assessment, and demonstration. All rights are reserved by the project authors. No permission to copy, modify, redistribute, deploy, or commercially exploit InkChain is granted by this repository. See the [LICENSE](LICENSE) file for the full terms.
+
+Third-party libraries and tools used by the project remain subject to their respective licenses and terms.

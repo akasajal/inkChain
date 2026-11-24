@@ -1,0 +1,60 @@
+PROPRIETARY & CONFIDENTIAL LICENSE
+Academic Submission — Blockchain Technology
+
+Copyright (c) 2026 Sajal, Darshan, Sangeeta, Md. Zaid, Safia, and Md. Mustafa
+All Rights Reserved.
+
+AUTHORS & CONTRIBUTORS
+Sajal — https://github.com/akasajal
+Darshan — https://github.com/darshann0319
+Sangeeta — https://github.com/sangeeta006
+Md. Zaid — https://github.com/mohd-zaidb
+Safia — https://github.com/safia052
+Md. Mustafa — https://github.com/mmustafair
+
+SCOPE
+This repository and its original project materials, including source code, smart
+contracts, compiled project binaries, software architecture, user interface
+designs, documentation, and bundled demonstration files (collectively, the
+"Software"), are proprietary intellectual property of the copyright holders.
+The Software was created for academic evaluation, assessment, and demonstration.
+
+Third-party libraries, tools, and other materials remain subject to their own
+licenses and terms. This license does not replace or restrict those terms.
+
+TERMS AND RESTRICTIONS
+
+1. PROHIBITED ACTIONS
+Without express prior written permission from the copyright holders, you may not:
+
+   a. Copy, reproduce, clone, scrape, mirror, or redistribute the Software or any
+      portion of it in any format or medium.
+   b. Modify, adapt, alter, translate, enhance, or create derivative works based
+      on the Software or its project-owned components.
+   c. Decompile, disassemble, reverse engineer, or attempt to derive the
+      underlying project-owned algorithms, data structures, or source files.
+   d. Use or deploy the Software outside the official academic evaluation,
+      assessment, and demonstration context, including for commercial,
+      institutional, or personal purposes.
+   e. Sublicense, lease, sell, rent, distribute, or incorporate the Software into
+      any third-party software, product, or service.
+
+2. PERMITTED PURPOSE
+Access is granted to authorized evaluators, judges, and designated
+administrators solely to assess, score, and technically verify the academic
+submission. No other use is permitted without prior written permission from the
+copyright holders.
+
+3. NO IMPLIED RIGHTS
+Except for the limited access described above, no license or right is granted
+under any copyright, patent, trademark, trade secret, or other proprietary
+right, whether expressly, by implication, estoppel, or otherwise.
+
+4. DISCLAIMER OF WARRANTIES AND LIABILITY
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO WARRANTIES OF MERCHANTABILITY, FITNESS
+FOR A PARTICULAR PURPOSE, TITLE, AND NON-INFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT, OR OTHERWISE, ARISING FROM,
+OUT OF, OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
