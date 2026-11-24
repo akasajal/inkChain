@@ -5,13 +5,45 @@ import {
   LayoutDashboard, Link2, List, LockKeyhole, Menu, Moon, Network, Plus,
   Shield, ShieldCheck, Sun, Upload, Wallet, X,
 } from 'lucide-react'
-import { Contract } from 'ethers'
+import { Contract, hexlify, randomBytes } from 'ethers'
 import { canUseLocalDemoAccount, connectWallet, contractAddress, humanError, readContract, registryAbi, sha256, shorten } from './chain'
 
 type Tab = 'overview' | 'register' | 'verify' | 'activity'
-type VersionRecord = { hash: string; writer: string; parentHash: string; title: string; registeredAt: number; tx: string }
-type ChainVersion = { writer: string; registeredAt: bigint; parentHash: string; title: string; exists: boolean }
+type VersionRecord = {
+  hash: string; writer: string; parentHash: string; title: string; registeredAt: number; tx: string
+  manuscriptId: string; manuscriptTitle: string; changeNote: string; fileType: string; fileSize: number
+  chainId: string; contractAddress: string; blockNumber: number; blockHash: string; legacy?: boolean
+}
+type ChainVersion = {
+  manuscriptId: string; parentHash: string; writer: string; registeredAt: bigint; fileSize: bigint
+  manuscriptTitle: string; title: string; changeNote: string; fileType: string; exists: boolean
+}
+type AttestationRole = 'editor' | 'publisher'
+type ChainAttestation = { signer: string; role: number; attestedAt: bigint }
 type Theme = 'cherry' | 'dark'
+
+const zeroHash = `0x${'00'.repeat(32)}`
+
+function getFileType(file: File) {
+  if (file.type) return file.type
+  const extension = file.name.split('.').pop()?.toLowerCase()
+  const knownTypes: Record<string, string> = { txt: 'text/plain', pdf: 'application/pdf', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', md: 'text/markdown' }
+  return extension ? knownTypes[extension] ?? `.${extension}` : 'application/octet-stream'
+}
+
+function loadRecords(): VersionRecord[] {
+  try {
+    const rows = JSON.parse(localStorage.getItem('inkchain-records') || '[]') as Partial<VersionRecord>[]
+    return rows.map((row) => ({
+      hash: row.hash ?? '', writer: row.writer ?? '', parentHash: row.parentHash ?? zeroHash,
+      title: row.title ?? 'Version', registeredAt: Number(row.registeredAt ?? 0), tx: row.tx ?? '',
+      manuscriptId: row.manuscriptId ?? '', manuscriptTitle: row.manuscriptTitle ?? row.title ?? 'Manuscript',
+      changeNote: row.changeNote ?? '', fileType: row.fileType ?? 'Unknown', fileSize: Number(row.fileSize ?? 0),
+      chainId: row.chainId ?? '', contractAddress: row.contractAddress ?? '',
+      blockNumber: Number(row.blockNumber ?? 0), blockHash: row.blockHash ?? '', legacy: row.legacy ?? !row.manuscriptId,
+    })).filter((row) => row.hash && row.writer)
+  } catch { return [] }
+}
 
 const navigation: { id: Tab; label: string; icon: typeof Activity }[] = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard },
@@ -28,12 +60,13 @@ function App() {
   const [chainId, setChainId] = useState<bigint | null>(null)
   const [toast, setToast] = useState('')
   const [mobileMenu, setMobileMenu] = useState(false)
-  const [records, setRecords] = useState<VersionRecord[]>(() => {
-    try { return JSON.parse(localStorage.getItem('inkchain-records') || '[]') as VersionRecord[] } catch { return [] }
-  })
+  const [records, setRecords] = useState<VersionRecord[]>(loadRecords)
   const [file, setFile] = useState<File | null>(null)
   const [parentHash, setParentHash] = useState('')
+  const [linkedManuscriptId, setLinkedManuscriptId] = useState('')
+  const [manuscriptTitle, setManuscriptTitle] = useState('')
   const [title, setTitle] = useState('')
+  const [changeNote, setChangeNote] = useState('')
   const [hash, setHash] = useState('')
   const [isDragging, setIsDragging] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -108,8 +141,22 @@ function App() {
     void chooseFile(event.dataTransfer.files[0], mode)
   }
 
+  const resolveParentVersion = async (value = parentHash.trim()) => {
+    if (!value) { setLinkedManuscriptId(''); return }
+    try {
+      const result = await readContract().getVersion(value) as [string, string, string, bigint, bigint, string, string, string, string, boolean]
+      if (!result[9]) throw new Error('No registered version has that fingerprint.')
+      setLinkedManuscriptId(result[0])
+      setManuscriptTitle(result[5])
+    } catch (error) {
+      setLinkedManuscriptId('')
+      setToast(humanError(error))
+    }
+  }
+
   const registerVersion = async () => {
     if (!file || !hash) { setToast('Choose a manuscript file first.'); return }
+    if (!manuscriptTitle.trim()) { setToast('Add a manuscript title first.'); return }
     if (!title.trim()) { setToast('Add a version label first.'); return }
     if (!account) { await handleConnect(); return }
     if (!contractAddress) { setToast('Registry is not configured. Follow the local setup in README.'); return }
@@ -118,18 +165,34 @@ function App() {
       const wallet = await connectWallet()
       setAccount(wallet.address)
       setChainId(wallet.chainId)
-      const parent = parentHash.trim() || `0x${'00'.repeat(32)}`
+      const parent = parentHash.trim() || zeroHash
+      let manuscriptId = linkedManuscriptId
+      if (parent !== zeroHash) {
+        const parentRecord = await readContract().getVersion(parent) as [string, string, string, bigint, bigint, string, string, string, string, boolean]
+        if (!parentRecord[9]) throw new Error('Previous version fingerprint was not found in this registry.')
+        manuscriptId = parentRecord[0]
+        if (manuscriptTitle.trim() !== parentRecord[5]) throw new Error(`Use the existing manuscript title: ${parentRecord[5]}`)
+      } else {
+        manuscriptId = hexlify(randomBytes(32))
+      }
       const registry = new Contract(contractAddress, registryAbi, wallet.signer)
-      const transaction = await registry.registerVersion(hash, parent, title.trim())
+      const fileType = getFileType(file)
+      const transaction = await registry.registerVersion(
+        manuscriptId, hash, parent, manuscriptTitle.trim(), title.trim(), changeNote.trim(), fileType, BigInt(file.size),
+      )
       setToast('Transaction submitted. Waiting for confirmation…')
       const receipt = await transaction.wait()
+      const storedVersion = await readContract().getVersion(hash) as [string, string, string, bigint, bigint, string, string, string, string, boolean]
       const next: VersionRecord = {
         hash, writer: wallet.address, parentHash: parent, title: title.trim(),
-        registeredAt: Math.floor(Date.now() / 1000), tx: receipt.hash,
+        registeredAt: Number(storedVersion[3]), tx: receipt.hash,
+        manuscriptId: storedVersion[0], manuscriptTitle: storedVersion[5], changeNote: storedVersion[7],
+        fileType: storedVersion[8], fileSize: Number(storedVersion[4]), chainId: wallet.chainId.toString(),
+        contractAddress, blockNumber: receipt.blockNumber, blockHash: receipt.blockHash,
       }
       setRecords((previous) => [next, ...previous.filter((item) => item.hash !== hash)])
       setToast('Version registered on-chain')
-      setFile(null); setHash(''); setParentHash(''); setTitle('')
+      setFile(null); setHash(''); setParentHash(''); setLinkedManuscriptId(''); setManuscriptTitle(''); setTitle(''); setChangeNote('')
     } catch (error) { setToast(humanError(error)) }
     finally { setBusy(false) }
   }
@@ -139,10 +202,13 @@ function App() {
     setVerifyBusy(true)
     setVerifyResult(null)
     try {
-      const result = await readContract().getVersion(verifyHash) as [string, bigint, string, string, boolean]
-      setVerifyResult(result[4]
-        ? { writer: result[0], registeredAt: result[1], parentHash: result[2], title: result[3], exists: true }
-        : { writer: '', registeredAt: 0n, parentHash: '', title: '', exists: false })
+      const result = await readContract().getVersion(verifyHash) as [string, string, string, bigint, bigint, string, string, string, string, boolean]
+      setVerifyResult(result[9]
+        ? {
+          manuscriptId: result[0], parentHash: result[1], writer: result[2], registeredAt: result[3], fileSize: result[4],
+          manuscriptTitle: result[5], title: result[6], changeNote: result[7], fileType: result[8], exists: true,
+        }
+        : { manuscriptId: '', parentHash: '', writer: '', registeredAt: 0n, fileSize: 0n, manuscriptTitle: '', title: '', changeNote: '', fileType: '', exists: false })
     } catch (error) { setToast(humanError(error)) }
     finally { setVerifyBusy(false) }
   }
@@ -150,6 +216,17 @@ function App() {
   const copyHash = async (value: string) => {
     await navigator.clipboard.writeText(value)
     setToast('Hash copied')
+  }
+
+  const submitAttestation = async (versionId: string, role: AttestationRole) => {
+    if (!contractAddress) throw new Error('Registry is not configured. Deploy the contract before adding an attestation.')
+    const wallet = await connectWallet()
+    setAccount(wallet.address)
+    setChainId(wallet.chainId)
+    const registry = new Contract(contractAddress, registryAbi, wallet.signer)
+    const transaction = await registry.attestVersion(versionId, role === 'editor' ? 0 : 1)
+    await transaction.wait()
+    setToast(`${role === 'editor' ? 'Editor' : 'Publisher'} attestation recorded`)
   }
 
   return (
@@ -191,14 +268,14 @@ function App() {
 
         <div className="page-content">
           {tab === 'overview' && <Overview records={records} onNavigate={switchTab} contractOk={contractOk} onSelect={setSelectedRecord} />}
-          {tab === 'register' && <RegisterPage file={file} hash={hash} parentHash={parentHash} title={title} busy={busy} isDragging={isDragging} setParentHash={setParentHash} setTitle={setTitle} setIsDragging={setIsDragging} onDrop={onDrop} onFile={(event) => void chooseFile(event.target.files?.[0], 'register')} onRegister={() => void registerVersion()} onCopy={() => void copyHash(hash)} />}
+          {tab === 'register' && <RegisterPage file={file} hash={hash} parentHash={parentHash} manuscriptTitle={manuscriptTitle} title={title} changeNote={changeNote} linkedManuscriptId={linkedManuscriptId} busy={busy} isDragging={isDragging} setTitle={setTitle} setManuscriptTitle={setManuscriptTitle} setChangeNote={setChangeNote} onParentHashChange={(value) => { setParentHash(value); setLinkedManuscriptId('') }} onResolveParent={() => void resolveParentVersion()} setIsDragging={setIsDragging} onDrop={onDrop} onFile={(event) => void chooseFile(event.target.files?.[0], 'register')} onRegister={() => void registerVersion()} onCopy={() => void copyHash(hash)} />}
           {tab === 'verify' && <VerifyPage fileName={verifyFileName} hash={verifyHash} result={verifyResult} busy={verifyBusy} isDragging={isDragging} setIsDragging={setIsDragging} onDrop={onDrop} onFile={(event) => void chooseFile(event.target.files?.[0], 'verify')} onVerify={() => void verifyManuscript()} onCopy={() => void copyHash(verifyHash)} />}
           {tab === 'activity' && <ActivityPage records={records} onSelect={setSelectedRecord} />}
         </div>
       </main>
       {mobileMenu && <button aria-label="Close menu" className="mobile-scrim" onClick={() => setMobileMenu(false)} />}
       {toast && <div className="toast"><span className="toast-icon"><Check size={15} /></span>{toast}<button onClick={() => setToast('')} aria-label="Dismiss"><X size={14} /></button></div>}
-      {selectedRecord && <VersionDetails record={selectedRecord} onClose={() => setSelectedRecord(null)} onCopy={(value) => void copyHash(value)} />}
+      {selectedRecord && <VersionDetails record={selectedRecord} onClose={() => setSelectedRecord(null)} onCopy={(value) => void copyHash(value)} onAttest={submitAttestation} />}
     </div>
   )
 }
@@ -261,8 +338,10 @@ function Dropzone({ mode, fileName, dragging, setDragging, onDrop, onFile }: {
 }
 
 function RegisterPage(props: {
-  file: File | null; hash: string; parentHash: string; title: string; busy: boolean; isDragging: boolean
-  setParentHash: (value: string) => void; setTitle: (value: string) => void; setIsDragging: (value: boolean) => void
+  file: File | null; hash: string; parentHash: string; manuscriptTitle: string; title: string; changeNote: string
+  linkedManuscriptId: string; busy: boolean; isDragging: boolean
+  setManuscriptTitle: (value: string) => void; setTitle: (value: string) => void; setChangeNote: (value: string) => void
+  onParentHashChange: (value: string) => void; onResolveParent: () => void; setIsDragging: (value: boolean) => void
   onDrop: (event: DragEvent<HTMLDivElement>, mode: 'register' | 'verify') => void
   onFile: (event: ChangeEvent<HTMLInputElement>) => void; onRegister: () => void; onCopy: () => void
 }) {
@@ -272,20 +351,24 @@ function RegisterPage(props: {
       <section className="form-card editor-card">
         <label className="field-label" htmlFor="manuscript-file">Manuscript</label>
         <div id="manuscript-file"><Dropzone mode="register" fileName={props.file?.name ?? ''} dragging={props.isDragging} setDragging={props.setIsDragging} onDrop={props.onDrop} onFile={props.onFile} /></div>
-        {props.file && <div className="file-meta"><FileText size={15} /><span>{props.file.name}</span><small>{(props.file.size / 1024).toFixed(1)} KB</small></div>}
+        {props.file && <div className="file-meta"><FileText size={15} /><span>{props.file.name}</span><small>{getFileType(props.file)} · {props.file.size.toLocaleString()} bytes</small></div>}
         <div className="editor-divider" />
-        <label className="field-label" htmlFor="version-title">Version name</label>
-        <input id="version-title" className="text-input" maxLength={120} placeholder="e.g. First draft" value={props.title} onChange={(event) => props.setTitle(event.target.value)} />
+        <label className="field-label" htmlFor="manuscript-title">Manuscript title</label>
+        <input id="manuscript-title" className="text-input" maxLength={160} placeholder="e.g. The Paper Harbor" value={props.manuscriptTitle} onChange={(event) => props.setManuscriptTitle(event.target.value)} />
+        <label className="field-label parent-label" htmlFor="version-title">Version label</label>
+        <input id="version-title" className="text-input" maxLength={120} placeholder="e.g. Revised draft" value={props.title} onChange={(event) => props.setTitle(event.target.value)} />
+        <label className="field-label parent-label" htmlFor="change-note">Change note <span>Optional · public on-chain</span></label>
+        <textarea id="change-note" className="text-area" maxLength={1000} placeholder="Summarize what changed in this version" value={props.changeNote} onChange={(event) => props.setChangeNote(event.target.value)} />
         <label className="field-label parent-label" htmlFor="parent-hash">Previous version <span>Optional</span></label>
-        <input id="parent-hash" className="text-input mono-input" placeholder="Paste a registered hash to link versions" value={props.parentHash} onChange={(event) => props.setParentHash(event.target.value)} />
-        <p className="field-hint"><Link2 size={13} />Leave blank for a first version.</p>
+        <input id="parent-hash" className="text-input mono-input" placeholder="Paste a previous version fingerprint" value={props.parentHash} onChange={(event) => props.onParentHashChange(event.target.value)} onBlur={props.onResolveParent} />
+        <p className="field-hint"><Link2 size={13} />{props.linkedManuscriptId ? 'Manuscript ID linked from the previous version.' : 'Leave blank to start a new manuscript history.'}</p>
       </section>
       <aside className="proof-aside">
         <div className="proof-preview"><div className="preview-heading"><Fingerprint size={16} /><span>FINGERPRINT</span><span className="algorithm-label">SHA-256</span></div>
           <code className="preview-hash">{props.hash || 'Select a file to generate its hash'}</code>
           {props.hash && <button className="copy-button" onClick={props.onCopy}><Copy size={13} />Copy hash</button>}
         </div>
-        <button className="button button-primary submit-button" disabled={props.busy || !props.hash || !props.title.trim()} onClick={props.onRegister}>
+        <button className="button button-primary submit-button" disabled={props.busy || !props.hash || !props.manuscriptTitle.trim() || !props.title.trim()} onClick={props.onRegister}>
           {props.busy ? <><span className="spinner" />Registering…</> : <>Continue to wallet <ArrowRight size={15} /></>}
         </button>
         <p className="aside-note"><ShieldCheck size={13} />The manuscript stays on this device.</p>
@@ -314,7 +397,7 @@ function VerifyPage(props: {
         <span className="result-icon">{props.result.exists ? <CheckCircle2 size={20} /> : <X size={20} />}</span>
         <div><strong>{props.result.exists ? 'Matching record found' : 'No matching record'}</strong>
           <p>{props.result.exists ? 'This exact file fingerprint is registered.' : 'This fingerprint is not present in the configured registry.'}</p>
-          {props.result.exists && <div className="result-details"><span><small>Version</small><strong>{props.result.title}</strong></span><span><small>Wallet</small><strong>{shorten(props.result.writer)}</strong></span><span><small>Registered</small><strong>{new Date(Number(props.result.registeredAt) * 1000).toLocaleString()}</strong></span></div>}
+          {props.result.exists && <div className="result-details"><span><small>Manuscript</small><strong>{props.result.manuscriptTitle}</strong></span><span><small>Version</small><strong>{props.result.title}</strong></span><span><small>Type · size</small><strong>{props.result.fileType} · {Number(props.result.fileSize).toLocaleString()} bytes</strong></span><span><small>Wallet</small><strong>{shorten(props.result.writer)}</strong></span><span><small>Registered</small><strong>{new Date(Number(props.result.registeredAt) * 1000).toLocaleString()}</strong></span></div>}
         </div>
       </div>}
       <p className="quiet-note"><LockKeyhole size={13} />The file is checked locally; its contents are never uploaded.</p>
@@ -390,18 +473,55 @@ function ActivityPage({ records, onSelect }: { records: VersionRecord[]; onSelec
   </>
 }
 
-function VersionDetails({ record, onClose, onCopy }: { record: VersionRecord; onClose: () => void; onCopy: (value: string) => void }) {
-  const zeroHash = `0x${'00'.repeat(32)}`
+function VersionDetails({ record, onClose, onCopy, onAttest }: { record: VersionRecord; onClose: () => void; onCopy: (value: string) => void; onAttest: (versionId: string, role: AttestationRole) => Promise<void> }) {
+  const [children, setChildren] = useState<string[]>([])
+  const [attestations, setAttestations] = useState<ChainAttestation[]>([])
+  const [role, setRole] = useState<AttestationRole>('editor')
+  const [attesting, setAttesting] = useState(false)
+  useEffect(() => {
+    let active = true
+    if (record.legacy) return () => { active = false }
+    const registry = readContract()
+    Promise.all([registry.getChildren(record.hash), registry.getAttestations(record.hash)]).then(([childIds, entries]) => {
+      if (!active) return
+      setChildren(Array.from(childIds as string[]))
+      setAttestations(Array.from(entries as ChainAttestation[]))
+    }).catch(() => { if (active) { setChildren([]); setAttestations([]) } })
+    return () => { active = false }
+  }, [record.hash, record.legacy])
+  const attest = async () => {
+    setAttesting(true)
+    try {
+      await onAttest(record.hash, role)
+      const entries = await readContract().getAttestations(record.hash) as ChainAttestation[]
+      setAttestations(Array.from(entries))
+    } catch { /* the app toast reports the wallet or transaction error */ }
+    finally { setAttesting(false) }
+  }
   return <div className="modal-layer" onClick={onClose}>
     <section className="version-modal" role="dialog" aria-modal="true" aria-labelledby="version-modal-title" onClick={(event) => event.stopPropagation()}>
-      <div className="modal-heading"><div><span className="eyebrow">VERSION RECORD</span><h2 id="version-modal-title">{record.title}</h2></div><button className="modal-close" aria-label="Close version details" onClick={onClose}><X size={17} /></button></div>
+      <div className="modal-heading"><div><span className="eyebrow">VERSION RECORD</span><h2 id="version-modal-title">{record.manuscriptTitle || 'Manuscript'}</h2><p className="modal-subtitle">{record.title}</p></div><button className="modal-close" aria-label="Close version details" onClick={onClose}><X size={17} /></button></div>
       <dl className="version-details-list">
+        <div><dt>Manuscript ID</dt><dd className="mono">{record.manuscriptId || 'Unavailable · legacy record'}</dd></div>
+        <div><dt>Version ID</dt><dd className="mono">{record.hash}</dd></div>
         <div><dt>Registered</dt><dd>{new Date(record.registeredAt * 1000).toLocaleString()}</dd></div>
+        <div><dt>File</dt><dd>{record.fileType || 'Unknown'} · {record.fileSize.toLocaleString()} bytes</dd></div>
         <div><dt>Wallet</dt><dd className="mono">{record.writer}</dd></div>
         <div><dt>Previous version</dt><dd className="mono">{record.parentHash.toLowerCase() === zeroHash ? 'First version' : record.parentHash}</dd></div>
-        <div><dt>Transaction</dt><dd className="mono">{record.tx}</dd></div>
+        <div><dt>Next versions</dt><dd className="mono">{record.legacy ? 'Unavailable · legacy record' : children.length ? children.join(', ') : 'None registered yet'}</dd></div>
+        {record.changeNote && <div className="detail-note"><dt>Change note</dt><dd>{record.changeNote}</dd></div>}
+        <div><dt>Network · chain ID</dt><dd>{record.chainId ? `Chain ${record.chainId}` : 'Unavailable · legacy record'}</dd></div>
+        <div><dt>Contract</dt><dd className="mono">{record.contractAddress || 'Unavailable · legacy record'}</dd></div>
+        <div><dt>Transaction</dt><dd className="mono">{record.tx || 'Unavailable · legacy record'}</dd></div>
+        <div><dt>Block · hash</dt><dd className="mono">{record.blockNumber ? `${record.blockNumber} · ${record.blockHash}` : 'Unavailable · legacy record'}</dd></div>
       </dl>
       <div className="modal-hash"><span>SHA-256 fingerprint</span><code>{record.hash}</code></div>
+      <section className="attestation-section"><div className="attestation-heading"><h3>Attestations</h3><span>{attestations.length}</span></div>
+        <p>Signing wallet and declared role are recorded on-chain.</p>
+        {attestations.length ? <ul className="attestation-list">{attestations.map((entry, index) => <li key={`${entry.signer}-${entry.role}-${index}`}><span>{entry.role === 0 ? 'Editor' : 'Publisher'}</span><code>{entry.signer}</code><time>{new Date(Number(entry.attestedAt) * 1000).toLocaleString()}</time></li>)}</ul> : <div className="attestation-empty">No attestations yet.</div>}
+        {!record.legacy && <div className="attestation-action"><select aria-label="Attestation role" value={role} onChange={(event) => setRole(event.target.value as AttestationRole)}><option value="editor">Editor</option><option value="publisher">Publisher</option></select><button className="button button-secondary" disabled={attesting} onClick={() => void attest()}>{attesting ? 'Signing…' : 'Sign attestation'}</button></div>}
+        <small className="attestation-disclosure">The registry records the wallet’s declared role; it does not verify the signer’s real-world identity or authority.</small>
+      </section>
       <button className="button button-primary modal-copy" onClick={() => onCopy(record.hash)}><Copy size={14} />Copy fingerprint</button>
     </section>
   </div>

@@ -1,9 +1,13 @@
 import { BrowserProvider, Contract, JsonRpcProvider, type Signer } from 'ethers'
 
 export const registryAbi = [
-  'function registerVersion(bytes32 documentHash, bytes32 parentHash, string title)',
-  'function getVersion(bytes32 documentHash) view returns (address writer, uint64 registeredAt, bytes32 parentHash, string title, bool exists)',
-  'event VersionRegistered(bytes32 indexed documentHash, address indexed writer, bytes32 indexed parentHash, uint64 registeredAt, string title)',
+  'function registerVersion(bytes32 manuscriptId, bytes32 versionId, bytes32 parentVersionId, string manuscriptTitle, string versionLabel, string changeNote, string fileType, uint64 fileSize)',
+  'function getVersion(bytes32 versionId) view returns (bytes32 manuscriptId, bytes32 parentVersionId, address writer, uint64 registeredAt, uint64 fileSize, string manuscriptTitle, string versionLabel, string changeNote, string fileType, bool exists)',
+  'function getChildren(bytes32 versionId) view returns (bytes32[])',
+  'function attestVersion(bytes32 versionId, uint8 role)',
+  'function getAttestations(bytes32 versionId) view returns ((address signer, uint8 role, uint64 attestedAt)[])',
+  'event VersionRegistered(bytes32 indexed versionId, bytes32 indexed manuscriptId, bytes32 indexed parentVersionId, address writer, uint64 registeredAt, uint64 fileSize, string manuscriptTitle, string versionLabel, string changeNote, string fileType)',
+  'event VersionAttested(bytes32 indexed versionId, address indexed signer, uint8 role, uint64 attestedAt)',
 ]
 
 declare global { interface Window { ethereum?: { request: (...args: unknown[]) => Promise<unknown> } } }
