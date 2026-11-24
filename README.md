@@ -179,15 +179,41 @@ For the local demo, confirm the Hardhat node is running and that `.env.local` po
 ## Project layout
 
 ```text
-contracts/ManuscriptRegistry.sol  Solidity registry contract
-contract-tests/                  Hardhat contract tests
-scripts/deploy.ts                Local deployment and .env.local setup
-src/App.tsx                      Application pages and UI state
-src/chain.ts                     Wallet, provider, hashing, and contract helpers
-src/styles.css                   Light and dark themes and layout styles
-demo_files/                      Fictional sample manuscripts for walkthroughs
-screenshots/                     README and report screenshots
+inkChain/
+├── contract-tests/
+│   └── ManuscriptRegistry.cjs    Contract behavior tests
+├── contracts/
+│   └── ManuscriptRegistry.sol    Version registry and attestation contract
+├── demo_files/
+│   ├── README.md                 Sample-file walkthrough
+│   ├── paper-harbor-v1.txt       First sample manuscript version
+│   ├── paper-harbor-v2.txt       Revised sample manuscript version
+│   ├── paper-harbor-v3.txt       Final sample manuscript version
+│   └── unregistered-story.txt    Sample file for a verification miss
+├── screenshots/                 UI screenshots and workflow diagram
+├── scripts/
+│   └── deploy.ts                 Deploys the contract and writes .env.local
+├── src/
+│   ├── App.tsx                   Workspace pages and application state
+│   ├── chain.ts                  Wallet, RPC, hashing, and contract helpers
+│   ├── main.tsx                  React application entry point
+│   ├── styles.css                Layout and light/dark theme styles
+│   └── vite-env.d.ts             Vite environment type declarations
+├── .env.example                  Example frontend environment settings
+├── .gitignore                    Ignored dependencies, build output, and secrets
+├── hardhat.config.ts             Solidity compiler, network, and Hardhat paths
+├── index.html                    Vite HTML entry point
+├── LICENSE                       Proprietary project license
+├── package.json                  Dependencies and npm scripts
+├── package-lock.json             Locked npm dependency versions
+├── README.md                     Project overview and setup guide
+├── tsconfig.json                 TypeScript project references
+├── tsconfig.app.json             Frontend TypeScript settings
+├── tsconfig.node.json            Tooling TypeScript settings
+└── vite.config.ts                Vite development/build configuration
 ```
+
+The deployment script generates `.env.local` with the active contract address and local network settings; it is intentionally ignored by Git. Hardhat’s `artifacts/` and `cache/`, Vite’s `dist/`, and installed dependencies in `node_modules/` are generated locally and are not source files.
 
 ## Team
 
