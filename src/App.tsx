@@ -12,7 +12,7 @@ type Tab = 'overview' | 'register' | 'verify' | 'activity'
 type VersionRecord = {
   hash: string; writer: string; parentHash: string; title: string; registeredAt: number; tx: string
   manuscriptId: string; manuscriptTitle: string; changeNote: string; fileType: string; fileSize: number
-  chainId: string; contractAddress: string; blockNumber: number; blockHash: string; legacy?: boolean
+  chainId: string; contractAddress: string; blockNumber: number; blockHash: string; privacyMode?: 'public' | 'local'; legacy?: boolean
 }
 type ChainVersion = {
   manuscriptId: string; parentHash: string; writer: string; registeredAt: bigint; fileSize: bigint
@@ -23,6 +23,9 @@ type ChainAttestation = { signer: string; role: number; attestedAt: bigint }
 type Theme = 'cherry' | 'dark'
 
 const zeroHash = `0x${'00'.repeat(32)}`
+const privateManuscriptLabel = 'Private manuscript'
+const privateVersionLabel = 'Version'
+type PrivateDescription = { manuscriptTitle: string; title: string; changeNote: string }
 
 function getFileType(file: File) {
   if (file.type) return file.type
@@ -40,9 +43,33 @@ function loadRecords(): VersionRecord[] {
       manuscriptId: row.manuscriptId ?? '', manuscriptTitle: row.manuscriptTitle ?? row.title ?? 'Manuscript',
       changeNote: row.changeNote ?? '', fileType: row.fileType ?? 'Unknown', fileSize: Number(row.fileSize ?? 0),
       chainId: row.chainId ?? '', contractAddress: row.contractAddress ?? '',
-      blockNumber: Number(row.blockNumber ?? 0), blockHash: row.blockHash ?? '', legacy: row.legacy ?? !row.manuscriptId,
+      blockNumber: Number(row.blockNumber ?? 0), blockHash: row.blockHash ?? '', privacyMode: row.privacyMode,
+      legacy: row.legacy ?? !row.manuscriptId,
     })).filter((row) => row.hash && row.writer)
   } catch { return [] }
+}
+
+function loadPrivateDescriptions() {
+  const descriptions = new Map<string, PrivateDescription>()
+  try {
+    const stored = JSON.parse(localStorage.getItem('inkchain-private-descriptions') || '{}') as Record<string, PrivateDescription>
+    Object.entries(stored).forEach(([hash, description]) => descriptions.set(hash.toLowerCase(), description))
+  } catch { /* Ignore malformed optional local metadata. */ }
+  loadRecords().filter((record) => record.privacyMode === 'local').forEach((record) => {
+    if (!descriptions.has(record.hash.toLowerCase())) {
+      descriptions.set(record.hash.toLowerCase(), { manuscriptTitle: record.manuscriptTitle, title: record.title, changeNote: record.changeNote })
+    }
+  })
+  return descriptions
+}
+
+function savePrivateDescription(hash: string, description: PrivateDescription) {
+  const descriptions = loadPrivateDescriptions()
+  descriptions.set(hash.toLowerCase(), description)
+  try {
+    localStorage.setItem('inkchain-private-descriptions', JSON.stringify(Object.fromEntries(descriptions)))
+    return true
+  } catch { return false }
 }
 
 const navigation: { id: Tab; label: string; icon: typeof Activity }[] = [
@@ -67,6 +94,7 @@ function App() {
   const [manuscriptTitle, setManuscriptTitle] = useState('')
   const [title, setTitle] = useState('')
   const [changeNote, setChangeNote] = useState('')
+  const [privacyMode, setPrivacyMode] = useState<'public' | 'local'>('public')
   const [hash, setHash] = useState('')
   const [isDragging, setIsDragging] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -100,6 +128,7 @@ function App() {
         await registry.getVersion(zeroHash)
         const filter = registry.filters.VersionRegistered()
         const events = []
+        const privateDescriptions = loadPrivateDescriptions()
         for (let fromBlock = registryDeploymentBlock; fromBlock <= latestBlock; fromBlock += 2_000) {
           const toBlock = Math.min(fromBlock + 1_999, latestBlock)
           events.push(...await registry.queryFilter(filter, fromBlock, toBlock))
@@ -108,12 +137,18 @@ function App() {
           if (!('args' in event)) return []
           const args = event.args as unknown as Record<string, unknown> & unknown[]
           const value = (name: string, index: number) => args[name] ?? args[index]
+          const hash = String(value('versionId', 0))
+          const cached = privateDescriptions.get(hash.toLowerCase())
+          const isPrivate = value('manuscriptTitle', 6) === privateManuscriptLabel && value('versionLabel', 7) === privateVersionLabel
+          const localPrivacyMode: VersionRecord['privacyMode'] = isPrivate ? 'local' : 'public'
           return [{
-            hash: String(value('versionId', 0)), manuscriptId: String(value('manuscriptId', 1)),
+            hash, manuscriptId: String(value('manuscriptId', 1)),
             parentHash: String(value('parentVersionId', 2)), writer: String(value('writer', 3)),
             registeredAt: Number(value('registeredAt', 4)), fileSize: Number(value('fileSize', 5)),
-            manuscriptTitle: String(value('manuscriptTitle', 6)), title: String(value('versionLabel', 7)),
-            changeNote: String(value('changeNote', 8)), fileType: String(value('fileType', 9)),
+            manuscriptTitle: isPrivate ? cached?.manuscriptTitle ?? privateManuscriptLabel : String(value('manuscriptTitle', 6)),
+            title: isPrivate ? cached?.title ?? privateVersionLabel : String(value('versionLabel', 7)),
+            changeNote: isPrivate ? cached?.changeNote ?? '' : String(value('changeNote', 8)),
+            privacyMode: localPrivacyMode, fileType: String(value('fileType', 9)),
             tx: event.transactionHash, chainId: network.chainId.toString(),
             contractAddress: String(registry.target), blockNumber: event.blockNumber,
             blockHash: event.blockHash, legacy: false,
@@ -194,7 +229,10 @@ function App() {
       const result = await readContract().getVersion(value) as [string, string, string, bigint, bigint, string, string, string, string, boolean]
       if (!result[9]) throw new Error('No registered version has that fingerprint.')
       setLinkedManuscriptId(result[0])
-      setManuscriptTitle(result[5])
+      const cached = loadPrivateDescriptions().get(value.toLowerCase())
+      const privateParent = result[5] === privateManuscriptLabel
+      setPrivacyMode(privateParent ? 'local' : 'public')
+      setManuscriptTitle(privateParent ? cached?.manuscriptTitle ?? '' : result[5])
     } catch (error) {
       setLinkedManuscriptId('')
       setToast(humanError(error))
@@ -219,30 +257,39 @@ function App() {
         const parentRecord = await readContract().getVersion(parent) as [string, string, string, bigint, bigint, string, string, string, string, boolean]
         if (!parentRecord[9]) throw new Error('Previous version fingerprint was not found in this registry.')
         manuscriptId = parentRecord[0]
-        if (manuscriptTitle.trim() !== parentRecord[5]) throw new Error(`Use the existing manuscript title: ${parentRecord[5]}`)
+        const privateParent = parentRecord[5] === privateManuscriptLabel
+        if (privateParent && privacyMode !== 'local') throw new Error('This history keeps descriptive details private. Choose “Keep details in this browser” for this version too.')
+        if (!privateParent && manuscriptTitle.trim() !== parentRecord[5]) throw new Error(`Use the existing manuscript title: ${parentRecord[5]}`)
       } else {
         manuscriptId = hexlify(randomBytes(32))
       }
       const registry = new Contract(contractAddress, registryAbi, wallet.signer)
       const fileType = getFileType(file)
+      const publicManuscriptTitle = privacyMode === 'local' ? privateManuscriptLabel : manuscriptTitle.trim()
+      const publicVersionLabel = privacyMode === 'local' ? privateVersionLabel : title.trim()
+      const publicChangeNote = privacyMode === 'local' ? '' : changeNote.trim()
       const transaction = await registry.registerVersion(
-        manuscriptId, hash, parent, manuscriptTitle.trim(), title.trim(), changeNote.trim(), fileType, BigInt(file.size),
+        manuscriptId, hash, parent, publicManuscriptTitle, publicVersionLabel, publicChangeNote, fileType, BigInt(file.size),
       )
       setToast('Transaction submitted. Waiting for confirmation…')
       const receipt = await transaction.wait()
       const storedVersion = await readContract().getVersion(hash) as [string, string, string, bigint, bigint, string, string, string, string, boolean]
+      let privateDetailsSaved = true
+      if (privacyMode === 'local') {
+        privateDetailsSaved = savePrivateDescription(hash, { manuscriptTitle: manuscriptTitle.trim(), title: title.trim(), changeNote: changeNote.trim() })
+      }
       const next: VersionRecord = {
         hash, writer: wallet.address, parentHash: parent, title: title.trim(),
         registeredAt: Number(storedVersion[3]), tx: receipt.hash,
-        manuscriptId: storedVersion[0], manuscriptTitle: storedVersion[5], changeNote: storedVersion[7],
+        manuscriptId: storedVersion[0], manuscriptTitle: manuscriptTitle.trim(), changeNote: changeNote.trim(), privacyMode,
         fileType: storedVersion[8], fileSize: Number(storedVersion[4]), chainId: wallet.chainId.toString(),
         contractAddress, blockNumber: receipt.blockNumber, blockHash: receipt.blockHash,
       }
       setRecords((previous) => [next, ...previous.filter((item) => item.hash !== hash)])
       setTab('overview')
       setSelectedRecord(next)
-      setToast('Version registered on-chain')
-      setFile(null); setHash(''); setParentHash(''); setLinkedManuscriptId(''); setManuscriptTitle(''); setTitle(''); setChangeNote('')
+      setToast(privateDetailsSaved ? 'Version registered on-chain' : 'Registered, but this browser could not save the private descriptions')
+      setFile(null); setHash(''); setParentHash(''); setLinkedManuscriptId(''); setManuscriptTitle(''); setTitle(''); setChangeNote(''); setPrivacyMode('public')
     } catch (error) { setToast(humanError(error)) }
     finally { setBusy(false) }
   }
@@ -319,7 +366,7 @@ function App() {
 
         <div className="page-content">
           {tab === 'overview' && <Overview records={records} onNavigate={switchTab} contractOk={contractOk} registryIssue={registryIssue} onSelect={setSelectedRecord} />}
-          {tab === 'register' && <RegisterPage file={file} hash={hash} parentHash={parentHash} manuscriptTitle={manuscriptTitle} title={title} changeNote={changeNote} linkedManuscriptId={linkedManuscriptId} busy={busy} isDragging={isDragging} setTitle={setTitle} setManuscriptTitle={setManuscriptTitle} setChangeNote={setChangeNote} onParentHashChange={(value) => { setParentHash(value); setLinkedManuscriptId('') }} onResolveParent={() => void resolveParentVersion()} setIsDragging={setIsDragging} onDrop={onDrop} onFile={(event) => void chooseFile(event.target.files?.[0], 'register')} onRegister={() => void registerVersion()} onCopy={() => void copyHash(hash)} />}
+          {tab === 'register' && <RegisterPage file={file} hash={hash} parentHash={parentHash} manuscriptTitle={manuscriptTitle} title={title} changeNote={changeNote} privacyMode={privacyMode} linkedManuscriptId={linkedManuscriptId} busy={busy} isDragging={isDragging} setTitle={setTitle} setManuscriptTitle={setManuscriptTitle} setChangeNote={setChangeNote} setPrivacyMode={setPrivacyMode} onParentHashChange={(value) => { setParentHash(value); setLinkedManuscriptId('') }} onResolveParent={() => void resolveParentVersion()} setIsDragging={setIsDragging} onDrop={onDrop} onFile={(event) => void chooseFile(event.target.files?.[0], 'register')} onRegister={() => void registerVersion()} onCopy={() => void copyHash(hash)} />}
           {tab === 'verify' && <VerifyPage fileName={verifyFileName} hash={verifyHash} result={verifyResult} busy={verifyBusy} isDragging={isDragging} setIsDragging={setIsDragging} onDrop={onDrop} onFile={(event) => void chooseFile(event.target.files?.[0], 'verify')} onVerify={() => void verifyManuscript()} onCopy={() => void copyHash(verifyHash)} />}
           {tab === 'activity' && <ActivityPage records={records} registryConnected={contractOk} onSelect={setSelectedRecord} />}
         </div>
@@ -390,8 +437,9 @@ function Dropzone({ mode, fileName, dragging, setDragging, onDrop, onFile }: {
 
 function RegisterPage(props: {
   file: File | null; hash: string; parentHash: string; manuscriptTitle: string; title: string; changeNote: string
-  linkedManuscriptId: string; busy: boolean; isDragging: boolean
+  privacyMode: 'public' | 'local'; linkedManuscriptId: string; busy: boolean; isDragging: boolean
   setManuscriptTitle: (value: string) => void; setTitle: (value: string) => void; setChangeNote: (value: string) => void
+  setPrivacyMode: (value: 'public' | 'local') => void
   onParentHashChange: (value: string) => void; onResolveParent: () => void; setIsDragging: (value: boolean) => void
   onDrop: (event: DragEvent<HTMLDivElement>, mode: 'register' | 'verify') => void
   onFile: (event: ChangeEvent<HTMLInputElement>) => void; onRegister: () => void; onCopy: () => void
@@ -404,11 +452,16 @@ function RegisterPage(props: {
         <div id="manuscript-file"><Dropzone mode="register" fileName={props.file?.name ?? ''} dragging={props.isDragging} setDragging={props.setIsDragging} onDrop={props.onDrop} onFile={props.onFile} /></div>
         {props.file && <div className="file-meta"><FileText size={15} /><span>{props.file.name}</span><small>{getFileType(props.file)} · {props.file.size.toLocaleString()} bytes</small></div>}
         <div className="editor-divider" />
-        <label className="field-label" htmlFor="manuscript-title">Manuscript title</label>
+        <fieldset className="privacy-choice"><legend>Descriptive metadata</legend>
+          <label><input type="radio" name="privacy-mode" checked={props.privacyMode === 'public'} onChange={() => props.setPrivacyMode('public')} /><span><strong>Public on-chain</strong><small>Title, version label, and change note are visible to everyone.</small></span></label>
+          <label><input type="radio" name="privacy-mode" checked={props.privacyMode === 'local'} onChange={() => props.setPrivacyMode('local')} /><span><strong>Keep details in this browser</strong><small>Names and change note stay local. Generic labels go on-chain; file type, size, wallet, time, and fingerprint remain public.</small></span></label>
+        </fieldset>
+        <p className="privacy-warning"><LockKeyhole size={13} />Local-only descriptions are lost if this browser’s storage is cleared.</p>
+        <label className="field-label parent-label" htmlFor="manuscript-title">Manuscript title {props.privacyMode === 'local' && <span>Local to this browser</span>}</label>
         <input id="manuscript-title" className="text-input" maxLength={160} placeholder="e.g. The Paper Harbor" value={props.manuscriptTitle} onChange={(event) => props.setManuscriptTitle(event.target.value)} />
-        <label className="field-label parent-label" htmlFor="version-title">Version label</label>
+        <label className="field-label parent-label" htmlFor="version-title">Version label {props.privacyMode === 'local' && <span>Local to this browser</span>}</label>
         <input id="version-title" className="text-input" maxLength={120} placeholder="e.g. Revised draft" value={props.title} onChange={(event) => props.setTitle(event.target.value)} />
-        <label className="field-label parent-label" htmlFor="change-note">Change note <span>Optional · public on-chain</span></label>
+        <label className="field-label parent-label" htmlFor="change-note">Change note <span>{props.privacyMode === 'local' ? 'Optional · local only' : 'Optional · public on-chain'}</span></label>
         <textarea id="change-note" className="text-area" maxLength={1000} placeholder="Summarize what changed in this version" value={props.changeNote} onChange={(event) => props.setChangeNote(event.target.value)} />
         <label className="field-label parent-label" htmlFor="parent-hash">Previous version <span>Optional</span></label>
         <input id="parent-hash" className="text-input mono-input" placeholder="Paste a previous version fingerprint" value={props.parentHash} onChange={(event) => props.onParentHashChange(event.target.value)} onBlur={props.onResolveParent} />
@@ -448,6 +501,7 @@ function VerifyPage(props: {
         <span className="result-icon">{props.result.exists ? <CheckCircle2 size={20} /> : <X size={20} />}</span>
         <div><strong>{props.result.exists ? 'Matching record found' : 'No matching record'}</strong>
           <p>{props.result.exists ? 'This exact file fingerprint is registered.' : 'This fingerprint is not present in the configured registry.'}</p>
+          {props.result.exists && props.result.manuscriptTitle === privateManuscriptLabel && props.result.title === privateVersionLabel && <p className="privacy-record-note">This record keeps descriptive details in the registering browser; generic labels are stored on-chain.</p>}
           {props.result.exists && <div className="result-details"><span><small>Manuscript</small><strong>{props.result.manuscriptTitle}</strong></span><span><small>Version</small><strong>{props.result.title}</strong></span><span><small>Type · size</small><strong>{props.result.fileType} · {Number(props.result.fileSize).toLocaleString()} bytes</strong></span><span><small>Wallet</small><strong>{shorten(props.result.writer)}</strong></span><span><small>Registered</small><strong>{new Date(Number(props.result.registeredAt) * 1000).toLocaleString()}</strong></span></div>}
         </div>
       </div>}
@@ -552,6 +606,7 @@ function VersionDetails({ record, onClose, onCopy, onAttest }: { record: Version
   return <div className="modal-layer" onClick={onClose}>
     <section className="version-modal" role="dialog" aria-modal="true" aria-labelledby="version-modal-title" onClick={(event) => event.stopPropagation()}>
       <div className="modal-heading"><div><span className="eyebrow">VERSION RECORD</span><h2 id="version-modal-title">{record.manuscriptTitle || 'Manuscript'}</h2><p className="modal-subtitle">{record.title}</p></div><button className="modal-close" aria-label="Close version details" onClick={onClose}><X size={17} /></button></div>
+      {record.privacyMode === 'local' && <p className="privacy-record-note">{record.manuscriptTitle === privateManuscriptLabel ? 'Descriptive details were kept in the registering browser and are unavailable here.' : 'The title, version label, and change note below are shown from this browser only; generic labels are stored on-chain.'}</p>}
       <dl className="version-details-list">
         <div><dt>Manuscript ID</dt><dd className="mono">{record.manuscriptId || 'Unavailable · legacy record'}</dd></div>
         <div><dt>Version ID</dt><dd className="mono">{record.hash}</dd></div>

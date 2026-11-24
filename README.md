@@ -31,7 +31,9 @@ Run the registry suite with `npm run test:contract`. It covers version metadata,
 
 ## Version records
 
-Each on-chain version stores its manuscript ID, parent version ID, registering wallet, timestamp, manuscript title, version label, optional change note, detected MIME type (or file extension when unavailable), and exact size in bytes. Children are derived from parent links and can branch; a version has no fixed single “next” version. The transaction receipt also contains the transaction hash and block number/hash, which the browser displays for records it registered. The change note and all other metadata are public on-chain. File contents and original filenames remain off-chain.
+Each on-chain version stores its manuscript ID, parent version ID, registering wallet, timestamp, title/label metadata, optional change note, detected MIME type (or file extension when unavailable), and exact size in bytes. Children are derived from parent links and can branch; a version has no fixed single “next” version. The transaction receipt also contains the transaction hash and block number/hash, which the browser displays for records it registered. File contents and original filenames remain off-chain.
+
+Registration offers two metadata choices. **Public on-chain** stores the entered title, version label, and change note in the registry. **Keep details in this browser** stores generic title and version labels on-chain, leaves the change note empty, and keeps the entered descriptions in this browser's local storage. In both modes, IDs, fingerprint, file type, exact size, wallet, timestamp, and history links remain public. Local-only descriptions are not recoverable from the blockchain and are lost if browser storage is cleared or the user switches devices.
 
 An Editor or Publisher can add an attestation by signing with a wallet and choosing a role. The contract records the signer address, declared role, and time, and prevents the same wallet from attesting the same version and role twice. These roles are declarations; the contract does not verify a person's identity or authority.
 
@@ -41,7 +43,7 @@ This version changes the registry contract interface. Existing deployments do no
 
 - When the registry is connected, Overview and Activity rebuild their records from `VersionRegistered` events and refresh every 15 seconds. The browser list is only a cache while the registry is offline. Clearing browser storage does not delete blockchain records; reconnect to rebuild the list.
 - Verification checks whether the exact file hash is present in the configured registry. A registered wallet and timestamp are evidence of a registration, not proof of a wallet holder's real-world identity or authorship.
-- Manuscript contents are never uploaded by this app. Titles, version labels, file type, size, and change notes are public on-chain, so avoid putting confidential details in them.
+- Manuscript contents are never uploaded by this app. In public metadata mode, titles, version labels, and change notes are public permanently. File type, size, IDs, fingerprints, wallet, time, and version links are public in either mode; do not use those fields for secrets.
 - The sample is configured for a local Hardhat chain. A public testnet deployment needs a chosen chain, RPC endpoint, and deployment configuration.
 
 ## Project layout
