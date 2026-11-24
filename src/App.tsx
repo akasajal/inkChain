@@ -191,6 +191,8 @@ function App() {
         contractAddress, blockNumber: receipt.blockNumber, blockHash: receipt.blockHash,
       }
       setRecords((previous) => [next, ...previous.filter((item) => item.hash !== hash)])
+      setTab('overview')
+      setSelectedRecord(next)
       setToast('Version registered on-chain')
       setFile(null); setHash(''); setParentHash(''); setLinkedManuscriptId(''); setManuscriptTitle(''); setTitle(''); setChangeNote('')
     } catch (error) { setToast(humanError(error)) }
