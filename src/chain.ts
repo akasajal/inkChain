@@ -14,6 +14,7 @@ declare global { interface Window { ethereum?: { request: (...args: unknown[]) =
 
 export const contractAddress = import.meta.env.VITE_CONTRACT_ADDRESS as string | undefined
 const rpcUrl = import.meta.env.VITE_RPC_URL as string | undefined
+export const registryDeploymentBlock = Number(import.meta.env.VITE_REGISTRY_DEPLOYMENT_BLOCK ?? 0)
 
 function isLoopbackRpc(value: string | undefined) {
   if (!value) return false
@@ -25,11 +26,15 @@ function isLoopbackRpc(value: string | undefined) {
 
 export const canUseLocalDemoAccount = isLoopbackRpc(rpcUrl)
 
-export function readContract() {
-  if (!contractAddress) throw new Error('Registry address is missing. Deploy the contract and set VITE_CONTRACT_ADDRESS.')
+export function readProvider() {
   const provider = rpcUrl ? new JsonRpcProvider(rpcUrl) : window.ethereum ? new BrowserProvider(window.ethereum) : null
   if (!provider) throw new Error('No read-only RPC is configured and no wallet is connected.')
-  return new Contract(contractAddress, registryAbi, provider)
+  return provider
+}
+
+export function readContract() {
+  if (!contractAddress) throw new Error('Registry address is missing. Deploy the contract and set VITE_CONTRACT_ADDRESS.')
+  return new Contract(contractAddress, registryAbi, readProvider())
 }
 
 export async function connectWallet(): Promise<{ signer: Signer; address: string; chainId: bigint }> {

@@ -33,7 +33,7 @@ This version changes the registry contract interface. Existing deployments do no
 
 ## Current prototype boundaries
 
-- The activity list is stored in the current browser's local storage; the contract remains the source of truth. Clearing browser storage clears this convenience list, not blockchain records.
+- When the registry is connected, Overview and Activity rebuild their records from `VersionRegistered` events and refresh every 15 seconds. The browser list is only a cache while the registry is offline. Clearing browser storage does not delete blockchain records; reconnect to rebuild the list.
 - Verification checks whether the exact file hash is present in the configured registry. A registered wallet and timestamp are evidence of a registration, not proof of a wallet holder's real-world identity or authorship.
 - Manuscript contents are never uploaded by this app. Titles, version labels, file type, size, and change notes are public on-chain, so avoid putting confidential details in them.
 - The sample is configured for a local Hardhat chain. A public testnet deployment needs a chosen chain, RPC endpoint, and deployment configuration.

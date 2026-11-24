@@ -5,8 +5,10 @@ async function main() {
   const registry = await ethers.deployContract('ManuscriptRegistry')
   await registry.waitForDeployment()
   const address = await registry.getAddress()
+  const deploymentReceipt = await registry.deploymentTransaction()?.wait()
+  const deploymentBlock = deploymentReceipt?.blockNumber ?? 0
   console.log(`ManuscriptRegistry deployed to ${address}`)
-  await writeFile('.env.local', `VITE_CONTRACT_ADDRESS=${address}\nVITE_RPC_URL=http://127.0.0.1:8545\n`)
+  await writeFile('.env.local', `VITE_CONTRACT_ADDRESS=${address}\nVITE_RPC_URL=http://127.0.0.1:8545\nVITE_REGISTRY_DEPLOYMENT_BLOCK=${deploymentBlock}\n`)
   console.log('Wrote .env.local; restart the Vite server if it is already running.')
 }
 

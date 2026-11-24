@@ -6,7 +6,7 @@ import {
   Shield, ShieldCheck, Sun, Upload, Wallet, X,
 } from 'lucide-react'
 import { Contract, hexlify, randomBytes } from 'ethers'
-import { canUseLocalDemoAccount, connectWallet, contractAddress, humanError, readContract, registryAbi, sha256, shorten } from './chain'
+import { canUseLocalDemoAccount, connectWallet, contractAddress, humanError, readContract, readProvider, registryAbi, registryDeploymentBlock, sha256, shorten } from './chain'
 
 type Tab = 'overview' | 'register' | 'verify' | 'activity'
 type VersionRecord = {
@@ -81,12 +81,47 @@ function App() {
 
   useEffect(() => {
     let mounted = true
-    try {
-      readContract().getVersion(`0x${'00'.repeat(32)}`)
-        .then(() => { if (mounted) setContractOk(true) })
-        .catch(() => { if (mounted) setContractOk(false) })
-    } catch { setContractOk(false) }
-    return () => { mounted = false }
+    let syncing = false
+    const syncRegistry = async () => {
+      if (syncing) return
+      syncing = true
+      try {
+        const registry = readContract()
+        const provider = readProvider()
+        await registry.getVersion(zeroHash)
+        const [network, latestBlock] = await Promise.all([provider.getNetwork(), provider.getBlockNumber()])
+        const filter = registry.filters.VersionRegistered()
+        const events = []
+        for (let fromBlock = registryDeploymentBlock; fromBlock <= latestBlock; fromBlock += 2_000) {
+          const toBlock = Math.min(fromBlock + 1_999, latestBlock)
+          events.push(...await registry.queryFilter(filter, fromBlock, toBlock))
+        }
+        const chainRecords: VersionRecord[] = events.flatMap((event) => {
+          if (!('args' in event)) return []
+          const args = event.args as unknown as Record<string, unknown> & unknown[]
+          const value = (name: string, index: number) => args[name] ?? args[index]
+          return [{
+            hash: String(value('versionId', 0)), manuscriptId: String(value('manuscriptId', 1)),
+            parentHash: String(value('parentVersionId', 2)), writer: String(value('writer', 3)),
+            registeredAt: Number(value('registeredAt', 4)), fileSize: Number(value('fileSize', 5)),
+            manuscriptTitle: String(value('manuscriptTitle', 6)), title: String(value('versionLabel', 7)),
+            changeNote: String(value('changeNote', 8)), fileType: String(value('fileType', 9)),
+            tx: event.transactionHash, chainId: network.chainId.toString(),
+            contractAddress: String(registry.target), blockNumber: event.blockNumber,
+            blockHash: event.blockHash, legacy: false,
+          }]
+        }).sort((a, b) => b.registeredAt - a.registeredAt)
+        if (mounted) {
+          setRecords(chainRecords)
+          setContractOk(true)
+        }
+      } catch {
+        if (mounted) setContractOk(false)
+      } finally { syncing = false }
+    }
+    void syncRegistry()
+    const interval = window.setInterval(() => void syncRegistry(), 15_000)
+    return () => { mounted = false; window.clearInterval(interval) }
   }, [])
 
   useEffect(() => { localStorage.setItem('inkchain-records', JSON.stringify(records)) }, [records])
@@ -272,7 +307,7 @@ function App() {
           {tab === 'overview' && <Overview records={records} onNavigate={switchTab} contractOk={contractOk} onSelect={setSelectedRecord} />}
           {tab === 'register' && <RegisterPage file={file} hash={hash} parentHash={parentHash} manuscriptTitle={manuscriptTitle} title={title} changeNote={changeNote} linkedManuscriptId={linkedManuscriptId} busy={busy} isDragging={isDragging} setTitle={setTitle} setManuscriptTitle={setManuscriptTitle} setChangeNote={setChangeNote} onParentHashChange={(value) => { setParentHash(value); setLinkedManuscriptId('') }} onResolveParent={() => void resolveParentVersion()} setIsDragging={setIsDragging} onDrop={onDrop} onFile={(event) => void chooseFile(event.target.files?.[0], 'register')} onRegister={() => void registerVersion()} onCopy={() => void copyHash(hash)} />}
           {tab === 'verify' && <VerifyPage fileName={verifyFileName} hash={verifyHash} result={verifyResult} busy={verifyBusy} isDragging={isDragging} setIsDragging={setIsDragging} onDrop={onDrop} onFile={(event) => void chooseFile(event.target.files?.[0], 'verify')} onVerify={() => void verifyManuscript()} onCopy={() => void copyHash(verifyHash)} />}
-          {tab === 'activity' && <ActivityPage records={records} onSelect={setSelectedRecord} />}
+          {tab === 'activity' && <ActivityPage records={records} registryConnected={contractOk} onSelect={setSelectedRecord} />}
         </div>
       </main>
       {mobileMenu && <button aria-label="Close menu" className="mobile-scrim" onClick={() => setMobileMenu(false)} />}
@@ -298,7 +333,7 @@ function Overview({ records, onNavigate, contractOk, onSelect }: {
     </section>
     {!contractOk && <div className="setup-note"><Network size={15} /><span>Registry offline. Start the local chain and deploy the contract to enable on-chain actions.</span></div>}
     <section className="section-block">
-      <div className="section-heading"><div><h2>{versionView === 'recent' ? 'Recent versions' : 'All versions'}</h2><p>Saved in this browser</p></div>
+      <div className="section-heading"><div><h2>{versionView === 'recent' ? 'Recent versions' : 'All versions'}</h2><p>{contractOk ? 'Registered on this network' : 'Cached in this browser'}</p></div>
         <div className="version-view-switch" role="group" aria-label="Version list range">
           <button className={versionView === 'recent' ? 'view-selected' : ''} aria-pressed={versionView === 'recent'} onClick={() => setVersionView('recent')}>Recent</button>
           <button className={versionView === 'all' ? 'view-selected' : ''} aria-pressed={versionView === 'all'} onClick={() => setVersionView('all')}>All versions</button>
@@ -436,13 +471,13 @@ function buildVersionPaths(records: VersionRecord[]) {
   return paths
 }
 
-function ActivityPage({ records, onSelect }: { records: VersionRecord[]; onSelect: (record: VersionRecord) => void }) {
+function ActivityPage({ records, registryConnected, onSelect }: { records: VersionRecord[]; registryConnected: boolean; onSelect: (record: VersionRecord) => void }) {
   const [view, setView] = useState<'table' | 'graph'>('table')
   const orderedRecords = [...records].sort((a, b) => b.registeredAt - a.registeredAt)
   const paths = buildVersionPaths(records)
   return <>
     <div className="page-title-row activity-title-row">
-      <div><div className="eyebrow">YOUR RECORDS</div><h1>Activity</h1><p className="page-subtitle">Versions registered from this browser.</p></div>
+      <div><div className="eyebrow">YOUR RECORDS</div><h1>Activity</h1><p className="page-subtitle">{registryConnected ? 'Versions registered on this network.' : 'Cached versions from this browser.'}</p></div>
       <div className="activity-controls"><span className="activity-total">{records.length}</span>
         <div className="view-switch" role="group" aria-label="Activity view">
           <button className={view === 'table' ? 'view-selected' : ''} aria-label="Table view" aria-pressed={view === 'table'} onClick={() => setView('table')}><List size={15} /></button>
