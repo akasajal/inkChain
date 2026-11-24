@@ -6,7 +6,7 @@ import {
   Shield, ShieldCheck, Sun, Upload, Wallet, X,
 } from 'lucide-react'
 import { Contract, hexlify, randomBytes } from 'ethers'
-import { canUseLocalDemoAccount, connectWallet, contractAddress, humanError, readContract, readProvider, registryAbi, registryDeploymentBlock, sha256, shorten } from './chain'
+import { assertWalletNetwork, canUseLocalDemoAccount, configuredChainId, connectWallet, contractAddress, humanError, readContract, readProvider, registryAbi, registryDeploymentBlock, sha256, shorten } from './chain'
 
 type Tab = 'overview' | 'register' | 'verify' | 'activity'
 type VersionRecord = {
@@ -75,6 +75,7 @@ function App() {
   const [verifyFileName, setVerifyFileName] = useState('')
   const [verifyBusy, setVerifyBusy] = useState(false)
   const [contractOk, setContractOk] = useState(false)
+  const [registryIssue, setRegistryIssue] = useState('Checking registry connection…')
 
   const activeLabel = navigation.find((item) => item.id === tab)?.label ?? 'Overview'
   const initials = account ? account.slice(2, 4).toUpperCase() : ''
@@ -88,8 +89,15 @@ function App() {
       try {
         const registry = readContract()
         const provider = readProvider()
-        await registry.getVersion(zeroHash)
         const [network, latestBlock] = await Promise.all([provider.getNetwork(), provider.getBlockNumber()])
+        if (configuredChainId !== null && network.chainId !== configuredChainId) {
+          throw new Error(`Registry RPC is on chain ${network.chainId}; expected chain ${configuredChainId}.`)
+        }
+        const code = await provider.getCode(String(registry.target))
+        if (code === '0x') {
+          throw new Error(`No registry contract is deployed at ${registry.target} on chain ${network.chainId}. Start the chain and deploy ManuscriptRegistry.`)
+        }
+        await registry.getVersion(zeroHash)
         const filter = registry.filters.VersionRegistered()
         const events = []
         for (let fromBlock = registryDeploymentBlock; fromBlock <= latestBlock; fromBlock += 2_000) {
@@ -114,9 +122,13 @@ function App() {
         if (mounted) {
           setRecords(chainRecords)
           setContractOk(true)
+          setRegistryIssue('')
         }
-      } catch {
-        if (mounted) setContractOk(false)
+      } catch (error) {
+        if (mounted) {
+          setContractOk(false)
+          setRegistryIssue(humanError(error))
+        }
       } finally { syncing = false }
     }
     void syncRegistry()
@@ -198,6 +210,7 @@ function App() {
     setBusy(true)
     try {
       const wallet = await connectWallet()
+      await assertWalletNetwork(wallet.chainId)
       setAccount(wallet.address)
       setChainId(wallet.chainId)
       const parent = parentHash.trim() || zeroHash
@@ -258,6 +271,7 @@ function App() {
   const submitAttestation = async (versionId: string, role: AttestationRole) => {
     if (!contractAddress) throw new Error('Registry is not configured. Deploy the contract before adding an attestation.')
     const wallet = await connectWallet()
+    await assertWalletNetwork(wallet.chainId)
     setAccount(wallet.address)
     setChainId(wallet.chainId)
     const registry = new Contract(contractAddress, registryAbi, wallet.signer)
@@ -284,7 +298,7 @@ function App() {
         </nav>
         <div className="sidebar-spacer" />
         <div className="sidebar-note"><LockKeyhole size={14} /><span>Manuscripts stay on your device.</span></div>
-        <div className="sidebar-bottom"><span className={`status-dot ${contractOk ? 'status-live' : ''}`} /><span>{contractOk ? 'Registry connected' : 'Registry offline'}</span><span className="version-label">v0.1</span></div>
+        <div className="sidebar-bottom"><span className={`status-dot ${contractOk ? 'status-live' : ''}`} /><span title={contractOk ? undefined : registryIssue}>{contractOk ? 'Registry connected' : 'Registry offline'}</span><span className="version-label">v0.1</span></div>
       </aside>
 
       <main className="main-area">
@@ -304,7 +318,7 @@ function App() {
         </header>
 
         <div className="page-content">
-          {tab === 'overview' && <Overview records={records} onNavigate={switchTab} contractOk={contractOk} onSelect={setSelectedRecord} />}
+          {tab === 'overview' && <Overview records={records} onNavigate={switchTab} contractOk={contractOk} registryIssue={registryIssue} onSelect={setSelectedRecord} />}
           {tab === 'register' && <RegisterPage file={file} hash={hash} parentHash={parentHash} manuscriptTitle={manuscriptTitle} title={title} changeNote={changeNote} linkedManuscriptId={linkedManuscriptId} busy={busy} isDragging={isDragging} setTitle={setTitle} setManuscriptTitle={setManuscriptTitle} setChangeNote={setChangeNote} onParentHashChange={(value) => { setParentHash(value); setLinkedManuscriptId('') }} onResolveParent={() => void resolveParentVersion()} setIsDragging={setIsDragging} onDrop={onDrop} onFile={(event) => void chooseFile(event.target.files?.[0], 'register')} onRegister={() => void registerVersion()} onCopy={() => void copyHash(hash)} />}
           {tab === 'verify' && <VerifyPage fileName={verifyFileName} hash={verifyHash} result={verifyResult} busy={verifyBusy} isDragging={isDragging} setIsDragging={setIsDragging} onDrop={onDrop} onFile={(event) => void chooseFile(event.target.files?.[0], 'verify')} onVerify={() => void verifyManuscript()} onCopy={() => void copyHash(verifyHash)} />}
           {tab === 'activity' && <ActivityPage records={records} registryConnected={contractOk} onSelect={setSelectedRecord} />}
@@ -317,8 +331,8 @@ function App() {
   )
 }
 
-function Overview({ records, onNavigate, contractOk, onSelect }: {
-  records: VersionRecord[]; onNavigate: (tab: Tab) => void; contractOk: boolean
+function Overview({ records, onNavigate, contractOk, registryIssue, onSelect }: {
+  records: VersionRecord[]; onNavigate: (tab: Tab) => void; contractOk: boolean; registryIssue: string
   onSelect: (record: VersionRecord) => void
 }) {
   const [versionView, setVersionView] = useState<'recent' | 'all'>('recent')
@@ -331,7 +345,7 @@ function Overview({ records, onNavigate, contractOk, onSelect }: {
       <p className="page-subtitle">A verifiable history for every version, while your pages stay private.</p>
       <button className="button button-primary" onClick={() => onNavigate('register')}><Plus size={15} />New version</button>
     </section>
-    {!contractOk && <div className="setup-note"><Network size={15} /><span>Registry offline. Start the local chain and deploy the contract to enable on-chain actions.</span></div>}
+    {!contractOk && <div className="setup-note"><Network size={15} /><span>{registryIssue || 'Registry unavailable. Check the RPC and deployed contract.'}</span></div>}
     <section className="section-block">
       <div className="section-heading"><div><h2>{versionView === 'recent' ? 'Recent versions' : 'All versions'}</h2><p>{contractOk ? 'Registered on this network' : 'Cached in this browser'}</p></div>
         <div className="version-view-switch" role="group" aria-label="Version list range">

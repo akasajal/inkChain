@@ -2,13 +2,16 @@ import { ethers } from 'hardhat'
 import { writeFile } from 'node:fs/promises'
 
 async function main() {
+  const network = await ethers.provider.getNetwork().catch(() => {
+    throw new Error('Cannot reach the local Hardhat node at 127.0.0.1:8545. Start it in another terminal with `npm run chain`, then retry.')
+  })
   const registry = await ethers.deployContract('ManuscriptRegistry')
   await registry.waitForDeployment()
   const address = await registry.getAddress()
   const deploymentReceipt = await registry.deploymentTransaction()?.wait()
   const deploymentBlock = deploymentReceipt?.blockNumber ?? 0
   console.log(`ManuscriptRegistry deployed to ${address}`)
-  await writeFile('.env.local', `VITE_CONTRACT_ADDRESS=${address}\nVITE_RPC_URL=http://127.0.0.1:8545\nVITE_REGISTRY_DEPLOYMENT_BLOCK=${deploymentBlock}\n`)
+  await writeFile('.env.local', `VITE_CONTRACT_ADDRESS=${address}\nVITE_RPC_URL=http://127.0.0.1:8545\nVITE_CHAIN_ID=${network.chainId}\nVITE_REGISTRY_DEPLOYMENT_BLOCK=${deploymentBlock}\n`)
   console.log('Wrote .env.local; restart the Vite server if it is already running.')
 }
 

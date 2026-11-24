@@ -15,6 +15,8 @@ declare global { interface Window { ethereum?: { request: (...args: unknown[]) =
 export const contractAddress = import.meta.env.VITE_CONTRACT_ADDRESS as string | undefined
 const rpcUrl = import.meta.env.VITE_RPC_URL as string | undefined
 export const registryDeploymentBlock = Number(import.meta.env.VITE_REGISTRY_DEPLOYMENT_BLOCK ?? 0)
+const configuredChainIdValue = import.meta.env.VITE_CHAIN_ID as string | undefined
+export const configuredChainId = configuredChainIdValue ? BigInt(configuredChainIdValue) : null
 
 function isLoopbackRpc(value: string | undefined) {
   if (!value) return false
@@ -35,6 +37,19 @@ export function readProvider() {
 export function readContract() {
   if (!contractAddress) throw new Error('Registry address is missing. Deploy the contract and set VITE_CONTRACT_ADDRESS.')
   return new Contract(contractAddress, registryAbi, readProvider())
+}
+
+export async function assertWalletNetwork(walletChainId: bigint) {
+  const registryNetwork = await readProvider().getNetwork()
+  if (configuredChainId !== null && walletChainId !== configuredChainId) {
+    throw new Error(`Wallet is on chain ${walletChainId}; expected chain ${configuredChainId}.`)
+  }
+  if (configuredChainId !== null && registryNetwork.chainId !== configuredChainId) {
+    throw new Error(`Registry RPC is on chain ${registryNetwork.chainId}; expected chain ${configuredChainId}.`)
+  }
+  if (walletChainId !== registryNetwork.chainId) {
+    throw new Error(`Wallet is on chain ${walletChainId}, but the registry RPC is on chain ${registryNetwork.chainId}.`)
+  }
 }
 
 export async function connectWallet(): Promise<{ signer: Signer; address: string; chainId: bigint }> {
@@ -68,6 +83,17 @@ export function shorten(value: string, chars = 6) {
 }
 
 export function humanError(error: unknown) {
-  const item = error as { shortMessage?: string; reason?: string; message?: string }
-  return item.shortMessage ?? item.reason ?? item.message ?? 'Something went wrong. Please try again.'
+  const item = error as { code?: string; shortMessage?: string; reason?: string; message?: string }
+  const message = item.shortMessage ?? item.reason ?? item.message ?? ''
+  if (item.code === 'ACTION_REJECTED') return 'The wallet request was cancelled.'
+  if (/ECONNREFUSED|failed to fetch|fetch failed|could not detect network|network error/i.test(message)) {
+    return 'Can’t reach the registry RPC. Start the Hardhat node with `npm run chain` and try again.'
+  }
+  if (/could not decode result data|bad_data/i.test(message)) {
+    return 'The registry address has no compatible contract. Deploy the updated ManuscriptRegistry, then restart Vite.'
+  }
+  if (/expected chain|wallet is on chain|registry rpc is on chain/i.test(message)) {
+    return `${message} Switch the wallet to the configured network and retry.`
+  }
+  return message || 'Something went wrong. Please try again.'
 }

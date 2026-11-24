@@ -21,7 +21,9 @@ You need Node.js 20 or newer. A browser wallet is optional for the local demo.
 
 To connect MetaMask instead, add a local network using RPC `http://127.0.0.1:8545`, chain ID `31337`, and currency symbol `ETH`. Hardhat accounts and their keys are public test credentials and must never be used with real funds. The wallet-free demo signer is enabled only for loopback RPC URLs.
 
-The deploy script writes the new contract address to `.env.local`. If Vite was already running, restart it so the frontend loads that address. The configured local RPC lets anyone verify a fingerprint without connecting a wallet; registration and attestations require a wallet because they send transactions.
+The deploy script writes the new contract address, chain ID, and deployment block to `.env.local`. If Vite was already running, restart it so the frontend loads that configuration. The app checks the RPC, deployed bytecode, registry ABI, and wallet network before enabling a write. The configured local RPC lets anyone verify a fingerprint without connecting a wallet; registration and attestations require a wallet because they send transactions.
+
+If the app says **Registry offline**, the Overview page shows the cause: unreachable RPC, missing deployment at the configured address, wrong chain, or an incompatible registry ABI. Start the node, deploy to that running node, and restart Vite after deployment. Local Hardhat chain state is erased when its node is restarted, so deploy again after each fresh start.
 
 ## Contract tests
 
